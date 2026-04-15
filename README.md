@@ -36,7 +36,7 @@ const { ciphertext, key } = await encryptFile(file, true); // true = compress
 // Decrypt
 const plaintext = await decryptFile(ciphertext, key);
 
-// BLAKE3 hash (matches server — use this for deletion proof verification)
+// BLAKE3 hash (matches server - use this for deletion proof verification)
 const hash = await hashCiphertextBlake3(ciphertext);
 
 // SHA-256 hash (legacy fingerprint)
@@ -57,4 +57,4 @@ Multiple chunks are concatenated into a single Blob.
 
 ## License
 
-AGPLv3 — see [LICENSE](./LICENSE). Crypto code is open for audit.
+AGPLv3 - see [LICENSE](./LICENSE). Crypto code is open for audit.

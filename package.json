@@ -1,7 +1,7 @@
 {
   "name": "@vastdisk/sdk-ts",
   "version": "0.1.0",
-  "description": "VASTDISK client-side crypto SDK — AES-256-GCM encryption, BLAKE3 hashing, Ed25519 proof verification. Browser-native Web Crypto + @noble/hashes.",
+  "description": "VASTDISK client-side crypto SDK - AES-256-GCM encryption, BLAKE3 hashing, Ed25519 proof verification. Browser-native Web Crypto + @noble/hashes.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "files": [
