@@ -78,9 +78,9 @@ export async function encryptFile(
 /**
  * Decrypt a ciphertext blob produced by encryptFile().
  * Key is the base64-encoded raw AES key returned at encryption time.
- * Automatically decompresses the decrypted data using gzip.
+ * @param decompress Whether to decompress the decrypted data using gzip.
  */
-export async function decryptFile(ciphertext: Blob, keyB64: string): Promise<Blob> {
+export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: boolean = false): Promise<Blob> {
   const rawKey = base64ToArrayBuffer(keyB64);
   const key = await window.crypto.subtle.importKey(
     "raw",
@@ -115,8 +115,8 @@ export async function decryptFile(ciphertext: Blob, keyB64: string): Promise<Blo
 
   const decryptedBlob = new Blob(chunks);
   
-  // Decompress the decrypted data
-  if (supportsCompressionStream()) {
+  // Decompress the decrypted data if the file was compressed
+  if (decompress && supportsCompressionStream()) {
     try {
       const decompressedStream = decryptedBlob.stream().pipeThrough(new DecompressionStream("gzip"));
       return await new Response(decompressedStream).blob();
