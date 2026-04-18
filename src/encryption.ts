@@ -2,12 +2,17 @@ import { AES_GCM_ALGO, KEY_LENGTH, IV_LENGTH, CHUNK_SIZE, LENGTH_PREFIX } from "
 import { arrayBufferToBase64Url, base64UrlToArrayBuffer, base64ToArrayBuffer, encodeLength, readLength, supportsCompressionStream } from "./utils";
 import type { EncryptResult, EncryptOptions } from "./types";
 import { defaultEncryptOptions } from "./types";
+import { CryptoError } from "./types";
 
 const V2_MAGIC = new TextEncoder().encode("VAST");
 const V2_VERSION = 2;
 const V2_FILE_NONCE_LEN = 16;
 const V2_HEADER_LEN = 24;
 const GCM_TAG_LEN = 16;
+
+type DecryptOptions = {
+  allowLegacyV1?: boolean;
+};
 
 function isV2Ciphertext(bytes: Uint8Array): boolean {
   if (bytes.byteLength < V2_HEADER_LEN) return false;
@@ -37,6 +42,23 @@ function makeV2Aad(header: Uint8Array, chunkIndex: number): ArrayBuffer {
   return aadBuf;
 }
 
+async function importAesKeyFromRaw(rawKey: ArrayBuffer, usages: KeyUsage[]): Promise<CryptoKey> {
+  if (rawKey.byteLength !== KEY_LENGTH / 8) {
+    throw new CryptoError(`Invalid key length: expected ${KEY_LENGTH / 8} bytes, got ${rawKey.byteLength}`, "InvalidKey");
+  }
+  try {
+    return await window.crypto.subtle.importKey(
+      "raw",
+      rawKey,
+      { name: AES_GCM_ALGO, length: KEY_LENGTH },
+      false,
+      usages
+    );
+  } catch {
+    throw new CryptoError("Failed to import AES key", "InvalidKey");
+  }
+}
+
 export async function encryptFile(
   file: File,
   compress: boolean = false
@@ -48,14 +70,10 @@ export async function encryptFileWithOpts(
   file: File,
   opts: EncryptOptions
 ): Promise<EncryptResult> {
-  const key = await window.crypto.subtle.generateKey(
-    { name: AES_GCM_ALGO, length: KEY_LENGTH },
-    true,
-    ["encrypt", "decrypt"]
-  );
-
-  const rawKey = await window.crypto.subtle.exportKey("raw", key);
-  const keyB64 = arrayBufferToBase64Url(rawKey);
+  // Generate raw key bytes ourselves so the WebCrypto CryptoKey is non-extractable.
+  const keyBytes = window.crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
+  const key = await importAesKeyFromRaw(keyBytes.buffer as ArrayBuffer, ["encrypt", "decrypt"]);
+  const keyB64 = arrayBufferToBase64Url(keyBytes.buffer as ArrayBuffer);
 
   let dataStream: ReadableStream<Uint8Array>;
   if (opts.compress && supportsCompressionStream()) {
@@ -116,7 +134,12 @@ export async function encryptFileWithOpts(
   return { ciphertext: new Blob(parts), key: keyB64 };
 }
 
-export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: boolean = false): Promise<Blob> {
+export async function decryptFile(
+  ciphertext: Blob,
+  keyB64: string,
+  decompress: boolean = false,
+  opts: DecryptOptions = {}
+): Promise<Blob> {
   let rawKey: ArrayBuffer;
   try {
     rawKey = base64UrlToArrayBuffer(keyB64);
@@ -129,21 +152,10 @@ export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: 
   }
 
   if (rawKey.byteLength !== KEY_LENGTH / 8) {
-    throw new Error(`Invalid key length: expected ${KEY_LENGTH / 8} bytes, got ${rawKey.byteLength}`);
+    throw new CryptoError(`Invalid key length: expected ${KEY_LENGTH / 8} bytes, got ${rawKey.byteLength}`, "InvalidKey");
   }
 
-  let key: CryptoKey;
-  try {
-    key = await window.crypto.subtle.importKey(
-      "raw",
-      rawKey,
-      { name: AES_GCM_ALGO, length: KEY_LENGTH },
-      false,
-      ["decrypt"]
-    );
-  } catch (e) {
-    throw new Error("Failed to import decryption key");
-  }
+  const key = await importAesKeyFromRaw(rawKey, ["decrypt"]);
 
   const buffer = new Uint8Array(await ciphertext.arrayBuffer());
   const chunks: Blob[] = [];
@@ -154,22 +166,25 @@ export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: 
   if (isV2Ciphertext(buffer)) {
     v2Header = buffer.slice(0, V2_HEADER_LEN);
     offset = V2_HEADER_LEN;
+  } else if (!opts.allowLegacyV1) {
+    // Legacy v1 ciphertexts had no header / no AAD binding; reject by default.
+    throw new CryptoError("Invalid ciphertext format (missing V2 header)", "InvalidCiphertext");
   }
 
   while (offset < buffer.byteLength) {
     if (offset + LENGTH_PREFIX > buffer.byteLength) {
-      throw new Error("Corrupt ciphertext: truncated length prefix");
+      throw new CryptoError("Corrupt ciphertext: truncated length prefix", "InvalidCiphertext");
     }
 
     const chunkLen = readLength(buffer, offset);
     offset += LENGTH_PREFIX;
 
     if (chunkLen < IV_LENGTH + GCM_TAG_LEN) {
-      throw new Error("Corrupt ciphertext: invalid chunk length");
+      throw new CryptoError("Corrupt ciphertext: invalid chunk length", "InvalidCiphertext");
     }
 
     if (offset + chunkLen > buffer.byteLength) {
-      throw new Error("Corrupt ciphertext: truncated chunk data");
+      throw new CryptoError("Corrupt ciphertext: truncated chunk data", "InvalidCiphertext");
     }
 
     const iv = buffer.slice(offset, offset + IV_LENGTH);
@@ -189,9 +204,9 @@ export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: 
       );
     } catch (e) {
       if (e instanceof Error && e.name === "OperationError") {
-        throw new Error("Incorrect decryption key. The file cannot be decrypted with the provided key.");
+        throw new CryptoError("Incorrect decryption key. The file cannot be decrypted with the provided key.", "DecryptionFailed");
       }
-      throw new Error(`Decryption failed: ${e instanceof Error ? e.message : String(e)}`);
+      throw new CryptoError(`Decryption failed: ${e instanceof Error ? e.message : String(e)}`, "DecryptionFailed");
     }
     chunks.push(new Blob([decrypted]));
     chunkIndex++;
@@ -204,7 +219,7 @@ export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: 
       const decompressedStream = decryptedBlob.stream().pipeThrough(new DecompressionStream("gzip"));
       return await new Response(decompressedStream).blob();
     } catch (e) {
-      throw new Error("Decompression failed: data is not valid gzip (wrong key, corrupt file, or incorrect compression flag)");
+      throw new CryptoError("Decompression failed: data is not valid gzip (wrong key, corrupt file, or incorrect compression flag)", "DecryptionFailed");
     }
   }
   
@@ -212,14 +227,9 @@ export async function decryptFile(ciphertext: Blob, keyB64: string, decompress: 
 }
 
 export async function encryptData(data: Uint8Array, opts: EncryptOptions = defaultEncryptOptions): Promise<EncryptResult> {
-  const key = await window.crypto.subtle.generateKey(
-    { name: AES_GCM_ALGO, length: KEY_LENGTH },
-    true,
-    ["encrypt", "decrypt"]
-  );
-
-  const rawKey = await window.crypto.subtle.exportKey("raw", key);
-  const keyB64 = arrayBufferToBase64Url(rawKey);
+  const keyBytes = window.crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
+  const key = await importAesKeyFromRaw(keyBytes.buffer as ArrayBuffer, ["encrypt", "decrypt"]);
+  const keyB64 = arrayBufferToBase64Url(keyBytes.buffer as ArrayBuffer);
 
   const parts: Blob[] = [];
   const header = makeV2Header();
