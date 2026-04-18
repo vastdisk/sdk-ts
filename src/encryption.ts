@@ -1,6 +1,6 @@
 import { AES_GCM_ALGO, KEY_LENGTH, IV_LENGTH, CHUNK_SIZE, LENGTH_PREFIX } from "./constants";
 import { arrayBufferToBase64Url, base64UrlToArrayBuffer, base64ToArrayBuffer, encodeLength, readLength, supportsCompressionStream } from "./utils";
-import type { EncryptResult, EncryptOptions, CryptoError } from "./types";
+import type { EncryptResult, EncryptOptions } from "./types";
 import { defaultEncryptOptions } from "./types";
 
 const V2_MAGIC = new TextEncoder().encode("VAST");

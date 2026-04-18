@@ -15,7 +15,7 @@ export class CryptoError extends Error {
   }
 }
 
-export type CryptoResult<T> = T | Promise<T>;
+export type CryptoResult<T> = Promise<T>;
 
 export interface EncryptResult {
   ciphertext: Blob;
