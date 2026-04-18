@@ -4,6 +4,14 @@
 
 import type { DeletionPayload } from "./types";
 
+function b64ToBytes(b64: string): Uint8Array {
+  try {
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  } catch (e) {
+    throw new Error(`Invalid base64: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 /**
  * Verify an Ed25519 deletion proof signature using Web Crypto API.
  *
@@ -18,16 +26,52 @@ export async function verifyDeletionProof(
   publicKeyB64: string
 ): Promise<boolean> {
   const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
-  const sigBytes = Uint8Array.from(atob(signatureB64), (c) => c.charCodeAt(0));
-  const pubKeyBytes = Uint8Array.from(atob(publicKeyB64), (c) => c.charCodeAt(0));
+  const sigBytes = b64ToBytes(signatureB64);
+  const pubKeyBytes = b64ToBytes(publicKeyB64);
 
   const publicKey = await crypto.subtle.importKey(
     "raw",
-    pubKeyBytes,
+    pubKeyBytes as BufferSource,
     { name: "Ed25519" },
     false,
     ["verify"]
   );
 
-  return crypto.subtle.verify({ name: "Ed25519" }, publicKey, sigBytes, payloadBytes);
+  return crypto.subtle.verify(
+    { name: "Ed25519" },
+    publicKey,
+    sigBytes as BufferSource,
+    payloadBytes as BufferSource
+  );
+}
+
+/**
+ * Verify a deletion proof against an exact JSON payload string.
+ *
+ * Prefer this when the server provides `payload_json`, as it avoids any
+ * serialization/canonicalization ambiguity across languages.
+ */
+export async function verifyDeletionProofJson(
+  payloadJson: string,
+  signatureB64: string,
+  publicKeyB64: string
+): Promise<boolean> {
+  const payloadBytes = new TextEncoder().encode(payloadJson);
+  const sigBytes = b64ToBytes(signatureB64);
+  const pubKeyBytes = b64ToBytes(publicKeyB64);
+
+  const publicKey = await crypto.subtle.importKey(
+    "raw",
+    pubKeyBytes as BufferSource,
+    { name: "Ed25519" },
+    false,
+    ["verify"]
+  );
+
+  return crypto.subtle.verify(
+    { name: "Ed25519" },
+    publicKey,
+    sigBytes as BufferSource,
+    payloadBytes as BufferSource
+  );
 }

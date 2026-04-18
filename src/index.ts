@@ -11,3 +11,5 @@ export * from "./types";
 export * from "./hash";
 export * from "./encryption";
 export * from "./verification";
+// Explicit named exports help some bundlers/tree-shakers.
+export { verifyDeletionProof, verifyDeletionProofJson } from "./verification";

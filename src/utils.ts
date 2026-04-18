@@ -13,13 +13,44 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(String.fromCharCode.apply(null, chars));
 }
 
+/**
+ * Convert ArrayBuffer to base64url string (URL-safe base64)
+ * Replaces '+' with '-', '/' with '_', and removes trailing '='
+ */
+export function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  const base64 = arrayBufferToBase64(buffer);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 export function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const chars = atob(base64);
-  const bytes = new Uint8Array(chars.length);
-  for (let i = 0; i < chars.length; i++) {
-    bytes[i] = chars.charCodeAt(i);
+  try {
+    const chars = atob(base64);
+    const bytes = new Uint8Array(chars.length);
+    for (let i = 0; i < chars.length; i++) {
+      bytes[i] = chars.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (e) {
+    throw new Error(`Invalid base64 string: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return bytes.buffer;
+}
+
+/**
+ * Convert base64url string to ArrayBuffer
+ * Replaces '-' with '+', '_' with '/', and adds padding if needed
+ */
+export function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
+  try {
+    // Convert base64url to standard base64
+    let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+    // Add padding if needed
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    return base64ToArrayBuffer(base64);
+  } catch (e) {
+    throw new Error(`Invalid base64url string: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function encodeLength(n: number): Uint8Array {
