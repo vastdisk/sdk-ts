@@ -4,6 +4,17 @@ import type { EncryptResult, EncryptOptions } from "./types";
 import { defaultEncryptOptions } from "./types";
 import { CryptoError } from "./types";
 
+let cryptoInstance: Crypto;
+if (typeof window !== 'undefined' && typeof window.crypto !== 'undefined') {
+  cryptoInstance = window.crypto;
+} else if (typeof globalThis !== 'undefined' && typeof (globalThis as any).crypto !== 'undefined') {
+  cryptoInstance = (globalThis as any).crypto;
+} else {
+  throw new Error('Web Crypto API not available in this environment');
+}
+
+const crypto = cryptoInstance;
+
 const V2_MAGIC = new TextEncoder().encode("VAST");
 const V2_VERSION = 2;
 const V2_FILE_NONCE_LEN = 16;
@@ -29,7 +40,7 @@ function makeV2Header(): Uint8Array {
   header[5] = 0;
   header[6] = 0;
   header[7] = 0;
-  const nonce = window.crypto.getRandomValues(new Uint8Array(V2_FILE_NONCE_LEN));
+  const nonce = crypto.getRandomValues(new Uint8Array(V2_FILE_NONCE_LEN));
   header.set(nonce, 8);
   return header;
 }
@@ -47,7 +58,7 @@ async function importAesKeyFromRaw(rawKey: ArrayBuffer, usages: KeyUsage[]): Pro
     throw new CryptoError(`Invalid key length: expected ${KEY_LENGTH / 8} bytes, got ${rawKey.byteLength}`, "InvalidKey");
   }
   try {
-    return await window.crypto.subtle.importKey(
+    return await crypto.subtle.importKey(
       "raw",
       rawKey,
       { name: AES_GCM_ALGO, length: KEY_LENGTH },
@@ -71,7 +82,7 @@ export async function encryptFileWithOpts(
   opts: EncryptOptions
 ): Promise<EncryptResult> {
   // Generate raw key bytes ourselves so the WebCrypto CryptoKey is non-extractable.
-  const keyBytes = window.crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
+  const keyBytes = crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
   const key = await importAesKeyFromRaw(keyBytes.buffer as ArrayBuffer, ["encrypt", "decrypt"]);
   const keyB64 = arrayBufferToBase64Url(keyBytes.buffer as ArrayBuffer);
 
@@ -107,9 +118,9 @@ export async function encryptFileWithOpts(
       const chunk = buffer.slice(0, opts.chunkSize);
       buffer = buffer.slice(opts.chunkSize);
 
-      const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+      const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
       const aad = makeV2Aad(header, chunkIndex++);
-      const encrypted = await window.crypto.subtle.encrypt(
+      const encrypted = await crypto.subtle.encrypt(
         { name: AES_GCM_ALGO, iv, additionalData: aad },
         key,
         chunk
@@ -120,9 +131,9 @@ export async function encryptFileWithOpts(
   }
 
   if (buffer.length > 0) {
-    const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+    const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
     const aad = makeV2Aad(header, chunkIndex++);
-    const encrypted = await window.crypto.subtle.encrypt(
+    const encrypted = await crypto.subtle.encrypt(
       { name: AES_GCM_ALGO, iv, additionalData: aad },
       key,
       buffer
@@ -197,7 +208,7 @@ export async function decryptFile(
     let decrypted: ArrayBuffer;
     try {
       const additionalData = v2Header ? makeV2Aad(v2Header, chunkIndex) : undefined;
-      decrypted = await window.crypto.subtle.decrypt(
+      decrypted = await crypto.subtle.decrypt(
         additionalData ? { name: AES_GCM_ALGO, iv, additionalData } : { name: AES_GCM_ALGO, iv },
         key,
         encData
@@ -227,7 +238,7 @@ export async function decryptFile(
 }
 
 export async function encryptData(data: Uint8Array, opts: EncryptOptions = defaultEncryptOptions): Promise<EncryptResult> {
-  const keyBytes = window.crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
+  const keyBytes = crypto.getRandomValues(new Uint8Array(KEY_LENGTH / 8));
   const key = await importAesKeyFromRaw(keyBytes.buffer as ArrayBuffer, ["encrypt", "decrypt"]);
   const keyB64 = arrayBufferToBase64Url(keyBytes.buffer as ArrayBuffer);
 
@@ -243,9 +254,9 @@ export async function encryptData(data: Uint8Array, opts: EncryptOptions = defau
   for (let offset = 0; offset < data.length; offset += opts.chunkSize) {
     const chunk = data.slice(offset, Math.min(offset + opts.chunkSize, data.length));
 
-    const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+    const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
     const aad = makeV2Aad(header, chunkIndex++);
-    const encrypted = await window.crypto.subtle.encrypt(
+    const encrypted = await crypto.subtle.encrypt(
       { name: AES_GCM_ALGO, iv, additionalData: aad },
       key,
       chunk

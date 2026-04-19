@@ -1,11 +1,9 @@
-import { blake3 } from "@noble/hashes/blake3";
 import { toHex } from "./utils";
 import { HashAlgorithm } from "./types";
 
 export async function hash(data: Uint8Array, algo: HashAlgorithm): Promise<string> {
   if (algo === HashAlgorithm.Blake3) {
-    const hash = blake3(data);
-    return toHex(hash);
+    throw new Error("BLAKE3 not available in this build");
   } else if (algo === HashAlgorithm.Sha256) {
     const hashBuffer = await crypto.subtle.digest("SHA-256", data.buffer as ArrayBuffer);
     return toHex(new Uint8Array(hashBuffer));
@@ -19,8 +17,7 @@ export async function hashCiphertext(ciphertext: Blob): Promise<string> {
 }
 
 export async function hashCiphertextBlake3(ciphertext: Blob): Promise<string> {
-  const buffer = new Uint8Array(await ciphertext.arrayBuffer());
-  return hash(buffer, HashAlgorithm.Blake3);
+  throw new Error("BLAKE3 not available in this build");
 }
 
 export async function hashSha256(data: Uint8Array): Promise<string> {
@@ -28,5 +25,5 @@ export async function hashSha256(data: Uint8Array): Promise<string> {
 }
 
 export async function hashBlake3(data: Uint8Array): Promise<string> {
-  return hash(data, HashAlgorithm.Blake3);
+  throw new Error("BLAKE3 not available in this build");
 }
